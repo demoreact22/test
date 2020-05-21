@@ -1,0 +1,200 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourcePrefix": {
+      "defaultValue": "dn",
+      "type": "String",
+      "metadata": {
+        "description": "Prefix for all resources created by this template"
+      }
+    },
+    "hostingPlanSku": {
+      "defaultValue": "F1",
+      "allowedValues": [
+        "F1",
+        "D1",
+        "B1",
+        "B2",
+        "B3",
+        "S1",
+        "S2",
+        "S3",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+      "type": "String",
+      "metadata": {
+        "description": "The pricing tier for the App Service plan"
+      }
+    },
+    "searchServiceSku": {
+      "defaultValue": "basic",
+      "allowedValues": [
+        "free",
+        "basic",
+        "standard",
+        "standard2",
+        "standard3"
+      ],
+      "type": "String",
+      "metadata": {
+        "description": "The SKU of the search service you want to create"
+      }
+    },
+    "searchServiceAndCognitiveServicesLocation": {
+      "defaultValue": "East US",
+      "allowedValues": [
+        "East Asia",
+        "Southeast Asia",
+        "Australia East",
+        "Brazil South",
+        "Canada Central",
+        "North Europe",
+        "West Europe",
+        "Central India",
+        "UK South",
+        "East US",
+        "East US 2",
+        "Central US",
+        "North Central US",
+        "South Central US",
+        "West Central US",
+        "West US",
+        "West US 2",
+        "Japan East",
+        "Japan West",
+        "Korea Central",
+        "France Central"
+      ],
+      "type": "String",
+      "metadata": {
+        "description": "Location where the Azure Search service and Cognitive Services account will be deployed."
+      }
+    },
+    "storageAccountType": {
+      "defaultValue": "Standard_LRS",
+      "allowedValues": [
+        "Standard_LRS",
+        "Standard_GRS",
+        "Standard_ZRS",
+        "Premium_LRS"
+      ],
+      "type": "String",
+      "metadata": {
+        "description": "Storage Account type"
+      }
+    }
+  },
+  "variables": {
+    "storageAccountName": "[concat(parameters('resourcePrefix'), 'storage', uniqueString(resourceGroup().id, deployment().name))]",
+    "searchServiceName": "[concat(parameters('resourcePrefix'), '-search-service-', uniqueString(resourceGroup().id, deployment().name))]",
+    "functionAppName": "[concat(parameters('resourcePrefix'), '-function-app-', uniqueString(resourceGroup().id, deployment().name))]",
+    "cognitiveServicesAccountName": "[concat(parameters('resourcePrefix'), '-cognitive-services-', uniqueString(resourceGroup().id, deployment().name))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2017-10-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "[parameters('storageAccountType')]"
+      },
+      "kind": "Storage"
+    },
+    {
+      "type": "Microsoft.Search/searchServices",
+      "apiVersion": "2015-08-19",
+      "name": "[variables('searchServiceName')]",
+      "location": "[parameters('searchServiceAndCognitiveServicesLocation')]",
+      "sku": {
+        "name": "[parameters('searchServiceSku')]"
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2017-04-18",
+      "name": "[variables('cognitiveServicesAccountName')]",
+      "location": "[parameters('searchServiceAndCognitiveServicesLocation')]",
+      "sku": {
+        "name": "S0"
+      },
+      "kind": "CognitiveServices",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Search/searchServices', variables('searchServiceName'))]"
+      ],
+      "kind": "functionapp",
+      "properties": {
+        "name": "[variables('functionAppName')]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "appSettings": [
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "beta"
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',variables('storageAccountName'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2015-05-01-preview').key1, ';')]"
+            },
+            {
+              "name": "AzureWebJobsDashboard",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',variables('storageAccountName'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2015-05-01-preview').key1, ';')]"
+            },
+            {
+              "name": "AzureWebJobsSecretStorageType",
+              "value": "Files"
+            },
+            {
+              "name": "BlobStorageAccountConnectionString",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',variables('storageAccountName'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2015-05-01-preview').key1, ';')]"
+            },
+            {
+              "name": "SearchServiceName",
+              "value": "[variables('searchServiceName')]"
+            },
+            {
+              "name": "SearchServiceApiKey",
+              "value": "[listAdminKeys(resourceId('Microsoft.Search/searchServices', variables('searchServiceName')), '2015-08-19').primaryKey]"
+            }
+          ],
+          "cors": {
+            "allowedOrigins": [
+              "[concat('https://', 'ninjasearch-stage', '.azurewebsites.net')]"
+            ]
+          },
+          "minTlsVersion": "1.2"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "Search Service Name": {
+      "type": "String",
+      "value": "[variables('searchServiceName')]"
+    },
+    "Search Service Api Key": {
+      "type": "String",
+      "value": "[listAdminKeys(resourceId('Microsoft.Search/searchServices', variables('searchServiceName')), '2015-08-19').primaryKey]"
+    },
+    "Cognitive Services Account Key": {
+      "type": "String",
+      "value": "[listkeys(resourceId('Microsoft.CognitiveServices/accounts', variables('cognitiveServicesAccountName')), '2017-04-18').key1]"
+    },
+    "Blob Storage Account Connection String": {
+      "type": "String",
+      "value": "[concat('DefaultEndpointsProtocol=https;AccountName=',variables('storageAccountName'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2015-05-01-preview').key1, ';')]"
+    }
+  }
+}
